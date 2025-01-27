@@ -1,0 +1,202 @@
+<script setup>
+import { ref, onMounted, computed, nextTick } from 'vue'
+import { format } from 'date-fns'
+import { Chart } from 'chart.js/auto'
+
+const backendUrl = 'http://localhost:3000'
+
+const data = ref([])
+
+const setupmode = ref(false)
+const setupchannel = ref(1) // Sensor #, not channel
+const setupdata = ref([])
+
+let setupChart = null
+let setupHistory = []
+
+const destroySetupChart = () => {
+  if(setupChart != null) {
+    setupChart.destroy()
+    setupChart = null
+  }
+  setupHistory = []
+}
+
+const updateM = async (channel, value) => {
+  const response = await fetch(backendUrl + '/set?ch=' + channel + '&m=' + (value ? '1' : '0'))
+}
+
+const updateFt = async () => {
+  const response = await fetch(backendUrl + '/data?ch=' + setupchannel.value + ',' + (setupchannel.value + 1) + '&type=ft')
+  const json = await response.json()
+  if(setupmode.value) {
+    setupdata.value = [ json[0]['ft'], json[1]['ft'] ]
+    setupHistory.push( { time: new Date().valueOf(), front: json[0]['ft'], rear: json[1]['ft'] } )
+    while(setupHistory[0].time < new Date().valueOf() - 30000) setupHistory.shift()
+    setTimeout(updateFt, 500)
+    updateSetupChart()
+  }
+  else {
+    destroySetupChart()
+  }
+}
+
+const updateSetupChart = () => {
+  const timeoffset = setupHistory.slice(-1)[0].time - 30000
+  let datasets = []
+  for(let i = 0; i < 2; i++) {
+    datasets.push({
+      label: i == 0 ? 'Ft (F)' : 'Ft (B)',
+      showLine: true,
+      data: setupHistory.map(el => ({ x: el.time - timeoffset, y: i == 0 ? el.front : el.rear }))
+    })
+  }
+
+  setupChart.data.datasets = datasets
+  setupChart.update()
+}
+
+const startSetupMode = async (channel) => {
+  setupmode.value = true
+  setupchannel.value = channel
+  updateM(channel * 2 - 1, 1)
+  updateFt()
+  destroySetupChart()
+  await nextTick()
+  createSetupChart()
+}
+
+const endSetupMode = () => {
+  setupmode.value = false
+  updateM(setupchannel.value * 2 - 1)
+  destroySetupChart()
+}
+
+onMounted(async () => {
+  var x = setTimeout('');
+  for (var i = 0; i <= x; i++)
+    clearTimeout(i);
+  
+  const response = await fetch(backendUrl + '/data')
+  // TODO error handling
+  const json = await response.json()
+  data.value = json
+})
+
+const formatDate = (date) => {
+  if(date)
+    return format(date, 'yyyy-MM-dd HH:mm')
+  return ''
+}
+
+const calcYII = (f, fm) => {
+  let y = 1 - (f / fm)
+  return y.toFixed(3)
+}
+
+const pairedSensorData = computed(() => {
+  let ret = []
+  for(let i = 0; i < data.value.length; i += 2) {
+    ret.push( { sensorno: (data.value[i].channel + 1) / 2, front: data.value[i], back: data.value[i + 1] } )
+  }
+  return ret
+})
+
+const createSetupChart = () => {
+  const ctx = document.getElementById('setupChart')
+  setupChart = new Chart(ctx, {
+    type: 'scatter',
+    data: {
+      datasets: [
+	{
+	  label: 'Ft (F)',
+	  data: [],
+	  fill: false,
+	},
+	{
+	  label: 'Ft (R)',
+	  data: [],
+	  fill: false,
+	}
+      ]
+    },
+    options: {
+      scales: {
+        y: {
+          min: 0,
+	  max: 1000,
+	  ticks: {
+	    display: false
+	  }
+        },
+	x: {
+	  min: 0,
+	  max: 30000,
+	  ticks: {
+	    display: false
+	  }
+	},
+      },
+      elements: {
+	point: {
+	  radius: 0
+	},
+	line: {
+	  borderWidth: 2,
+	}
+      },
+      plugins: {
+	legend: {
+	  display: false
+	}
+      },
+      animation: false,
+      responsive: false
+    }
+  })
+}
+
+</script>
+
+<template>
+<div v-if="setupmode">
+  <div>
+    <div @click="endSetupMode">X</div>
+    <h2>Setup</h2>
+    Sensor: {{ setupchannel }}<br>
+    Front: {{ setupdata[0] }}<br>
+    Rear: {{ setupdata[1] }}<br>
+    <canvas id="setupChart" style="width: 20em; height: 10em; border: solid 1px black;"></canvas>
+    
+  </div>
+</div>
+<div v-else>
+  <div v-for="sensor in pairedSensorData" :key="sensor.sensorno">
+    <hr>
+    Sensor {{ sensor.sensorno }}
+    <br>
+    <button @click="startSetupMode(sensor.sensorno)">Setup</button>
+
+    <br>
+    <br>
+    F Measurement:<br>
+    ({{ formatDate(sensor.front.ftime) }})<br>
+    F Front: {{ sensor.front.f }}
+    F Back: {{ sensor.back.f }}
+    <br>
+    Yield Measurement:<br>
+    ({{ formatDate(sensor.front.ytime) }})<br>
+    F Front: {{ sensor.front.yf }}<br>
+    F Back: {{ sensor.back.yf }}<br>
+    Fm Front: {{ sensor.front.yfm }}<br>
+    Fm Back: {{ sensor.back.yfm }}<br>
+    Y(II) Front: {{ calcYII(sensor.front.yf, sensor.front.yfm) }}<br>
+    Y(II) Back: {{ calcYII(sensor.back.yf, sensor.back.yfm) }}<br>
+    
+  </div>
+</div>
+<hr>
+</template>
+
+<style scoped>
+</style>

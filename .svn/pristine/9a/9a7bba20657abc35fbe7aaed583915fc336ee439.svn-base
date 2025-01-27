@@ -1,0 +1,415 @@
+<script setup>
+import { ref, onMounted, computed, nextTick } from 'vue'
+import { format } from 'date-fns'
+import { Chart } from 'chart.js/auto'
+
+const backendUrl = 'http://192.168.3.101'
+
+const data = ref([])
+let charts = []
+
+const setupmode = ref(false)
+const setupchannel = ref(1) // Sensor #, not channel
+const setupdata = ref([])
+
+let setupChart = null
+let setupHistory = []
+
+const destroySetupChart = () => {
+  if(setupChart != null) {
+    setupChart.destroy()
+    setupChart = null
+  }
+  setupHistory = []
+}
+
+const updateM = async (channel, value) => {
+  const response = await fetch(backendUrl + '/set?ch=' + channel + '&m=' + (value ? '1' : '0'))
+}
+
+const updateMI = async (channel, value) => {
+  const response = await fetch(backendUrl + '/set?ch=' + channel + '&mi=' + value)
+}
+
+const updateSetupMode = async (channel, value) => {
+  const response = await fetch(backendUrl + '/set?ch=' + channel + '&setup=' + value)
+}
+
+const updateFt = async () => {
+  const response = await fetch(backendUrl + '/data?ch=' + setupchannel.value + ',' + (setupchannel.value + 1) + '&type=ft')
+  const json = await response.json()
+  if(setupmode.value) {
+    setupdata.value = [ json[0]['ft'], json[1]['ft'] ]
+    setupHistory.push( { time: new Date().valueOf(), front: json[0]['ft'], rear: json[1]['ft'] } )
+    while(setupHistory[0].time < new Date().valueOf() - 30000) setupHistory.shift()
+    setTimeout(updateFt, 500)
+    updateSetupChart()
+  }
+  else {
+    destroySetupChart()
+  }
+}
+
+const updateSetupChart = () => {
+  const timeoffset = setupHistory.slice(-1)[0].time - 30000
+  let datasets = []
+  for(let i = 0; i < 2; i++) {
+    datasets.push({
+      label: i == 0 ? 'Ft (F)' : 'Ft (B)',
+      showLine: true,
+      data: setupHistory.map(el => ({ x: el.time - timeoffset, y: i == 0 ? el.front : el.rear }))
+    })
+  }
+
+  setupChart.data.datasets = datasets
+  setupChart.update()
+}
+
+const startSetupMode = async (channel) => {
+  setupmode.value = true
+  setupchannel.value = channel
+  //updateM(channel * 2 - 1, 1)
+  //updateMI(channel * 2 - 1, 750)
+  //updateMI(channel * 2, 750)
+  updateSetupMode(channel, 1)
+  updateFt()
+  destroySetupChart()
+  await nextTick()
+  createSetupChart()
+}
+
+const endSetupMode = () => {
+  setupmode.value = false
+  updateSetupMode(setupchannel.value * 2 - 1, 0)
+  destroySetupChart()
+}
+
+const updateData = async () => {
+  const response2 = await fetch(backendUrl + '/data')
+  // TODO error handling
+  data.value = await response2.json()
+
+  await nextTick()
+
+  console.log(data.value)
+
+  for(let i = 1; i <= data.value.length / 2; i++) {
+    const ctxfront = document.getElementById('satchartfront' + i)
+    const ctxrear = document.getElementById('satchartrear' + i)
+
+    const dataindex = i * 2 - 2
+
+    const datafront = data.value[dataindex].ychart.map((value, index) => ({ x: index * 50, y: value }))
+    const datarear = data.value[dataindex + 1].ychart.map((value, index) => ({ x: index * 50, y: value }))
+    
+    const chartdatasetsfront = [
+      {
+	label: 'Ft (F)',
+	data: datafront,
+	fill: false
+      }
+    ]
+    const chartdatasetsrear = [
+      {
+	label: 'Ft (R)',
+	data: datarear,
+	fill: false
+      }
+    ]
+
+    console.log("Charts available: " + charts.length + ", charts needed: " + (i * 2))
+    if(charts.length < i * 2) {
+      charts.push(new Chart(ctxfront, {
+	type: 'scatter',
+	data: {
+	  datasets: chartdatasetsfront
+	},
+	options: {
+	  scales: {
+	    y: {
+	      ticks: {
+		display: false
+	      }
+	    },
+	    x: {
+	      ticks: {
+		display: false
+	      }
+	    }
+	  },
+	  elements: {
+	    point: {
+	      radius: 2
+	    },
+	    line: {
+	      borderWidth: 2
+	    }
+	  },
+	  plugins: {
+	    legend: {
+	      display: false
+	    }
+	  },
+	  animation: false,
+	  responsive: false
+	}
+      }))
+      charts.push(new Chart(ctxrear, {
+	type: 'scatter',
+	data: {
+	  datasets: chartdatasetsrear
+	},
+	options: {
+	  scales: {
+	    y: {
+	      ticks: {
+		display: false
+	      }
+	    },
+	    x: {
+	      ticks: {
+		display: false
+	      }
+	    }
+	  },
+	  elements: {
+	    point: {
+	      radius: 2
+	    },
+	    line: {
+	      borderWidth: 2
+	    }
+	  },
+	  plugins: {
+	    legend: {
+	      display: false
+	    }
+	  },
+	  animation: false,
+	  responsive: false
+	}
+      }))
+    }
+    else {
+      charts[i * 2 - 2].data.datasets = chartdatasetsfront
+      charts[i * 2 - 2].update()
+      charts[i * 2 - 1].data.datasets = chartdatasetsrear
+      charts[i * 2 - 1].update()
+    }
+  }
+}
+
+const runMeasurement = async (channel, withFlash) => {
+  console.log("Run measurement")
+  const meastype = withFlash ? "sat" : "f"
+  const response1 = await fetch(backendUrl + '/set?ch=' + (channel * 2 - 1) + '&meas=' + meastype)
+  console.log("Measurement finished")
+  updateData()
+}
+
+onMounted(async () => {
+  var x = setTimeout('');
+  for (var i = 0; i <= x; i++)
+    clearTimeout(i);
+
+  updateData()
+})
+
+const formatDate = (date) => {
+  if(date)
+    return format(date, 'yyyy-MM-dd HH:mm')
+  return ''
+}
+
+const calcYII = (f, fm) => {
+  let y = 1 - (f / fm)
+  return y.toFixed(3)
+}
+
+const pairedSensorData = computed(() => {
+  let ret = []
+  for(let i = 0; i < data.value.length; i += 2) {
+    ret.push( { sensorno: (data.value[i].channel + 1) / 2, front: data.value[i], back: data.value[i + 1] } )
+  }
+  return ret
+})
+
+const createSetupChart = () => {
+  const ctx = document.getElementById('setupChart')
+  setupChart = new Chart(ctx, {
+    type: 'scatter',
+    data: {
+      datasets: [
+	{
+	  label: 'Ft (F)',
+	  data: [],
+	  fill: false,
+	},
+	{
+	  label: 'Ft (R)',
+	  data: [],
+	  fill: false,
+	}
+      ]
+    },
+    options: {
+      scales: {
+        y: {
+          min: 0,
+	  max: 1000,
+	  ticks: {
+	    display: false
+	  }
+        },
+	x: {
+	  min: 0,
+	  max: 30000,
+	  ticks: {
+	    display: false
+	  }
+	},
+      },
+      elements: {
+	point: {
+	  radius: 0
+	},
+	line: {
+	  borderWidth: 2,
+	}
+      },
+      plugins: {
+	legend: {
+	  display: false
+	}
+      },
+      animation: false,
+      responsive: false
+    }
+  })
+}
+
+</script>
+
+<template>
+<div v-if="setupmode">
+  <div>
+    <div @click="endSetupMode">X</div>
+    <h2>Setup</h2>
+    Sensor: {{ setupchannel }}<br>
+    Front: {{ setupdata[0] }}<br>
+    Rear: {{ setupdata[1] }}<br>
+    <canvas id="setupChart" style="width: 20em; height: 10em; border: solid 1px black;"></canvas>
+  </div>
+</div>
+<div v-else>
+
+  <div v-for="sensor in pairedSensorData" :key="sensor.sensorno">
+
+ <!-- <h2>Sensor {{ sensor.sensorno }} <span>F Measurement  ({{ formatDate(sensor.front.ftime) }})</span><span>Yield Measurement  ({{ formatDate(sensor.front.ytime) }})</span></h2> -->
+<div class="grid-wrapper">
+
+  <div>
+  <h2>Sensor {{ sensor.sensorno }}</h2>
+    <button class="setup" @click="startSetupMode(sensor.sensorno)">Setup</button>
+  </div>
+
+  <button @click="runMeasurement(sensor.sensorno, 0)">Measure F</button>
+  <button @click="runMeasurement(sensor.sensorno, 1)">Measure Yield</button>
+
+  <div>
+  <span>F Measurement<br>({{ formatDate(sensor.front.ftime) }})</span>
+ <div class="grid-f">
+  <div>
+<p>Front</p>
+<br>
+<p>{{ sensor.front.f }}</p>
+</div>
+<div>
+<p>Back</p>
+<br>
+<p>{{ sensor.back.f }}</p>
+</div>
+</div>
+</div>
+
+<div>
+<span>Yield Measurement<br>({{ formatDate(sensor.front.ytime) }})</span>
+<div class="grid-yield">
+  <div>
+<p>Front</p>
+<br>
+<p>F: {{ sensor.front.yf }}</p>
+<p>Fm: {{ sensor.front.yfm }}</p>
+<p>Y(II): {{ calcYII(sensor.front.yf, sensor.front.yfm) }}</p>
+</div>
+<div>
+<p>Back</p>
+<br>
+<p>F: {{ sensor.back.yf }}</p>
+<p>Fm: {{ sensor.back.yfm }}</p>
+<p>Y(II): {{ calcYII(sensor.back.yf, sensor.back.yfm) }}</p>
+</div>
+</div>
+</div>
+<canvas :id="'satchartfront' + sensor.sensorno" style="width:10em;height:5em;border:1px solid black;"></canvas>
+<canvas :id="'satchartrear' + sensor.sensorno" style="width:10em;height:5em;border:1px solid black;"></canvas>
+
+</div>
+  </div>
+
+</div>
+
+</template>
+
+<style scoped>
+* {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+  font-family: Arial, Helvetica, sans-serif;
+}
+
+h2 {
+  background-color: #ddd;
+}
+span {
+  font-size: 1rem;
+  font-weight: 200;
+background-color: #ddd;
+
+}
+.grid-wrapper {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  border: 1px solid black;
+}
+.grid-f, .grid-yield {
+    display: grid;
+    margin: 2rem;
+    grid-template-columns: repeat(2, 1fr);
+
+
+}
+
+button.setup {
+
+  display: inline-block;
+  outline: 0;
+  cursor: pointer;
+  text-align: center;
+  border: 0;
+  padding: 7px 16px;
+  min-height: 36px;
+  min-width: 36px;
+  color: #ffffff;
+  background: #008060;
+  border-radius: 4px;
+  font-weight: 500;
+  font-size: 14px;
+  box-shadow: rgba(0, 0, 0, 0.05) 0px 1px 0px 0px, rgba(0, 0, 0, 0.2) 0px -1px 0px 0px inset;
+  :hover {
+  background: #006e52;
+}
+}
+
+</style>

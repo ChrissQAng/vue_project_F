@@ -1,0 +1,79 @@
+<script setup>
+import { ref, onMounted } from 'vue'
+
+const data = ref([
+  { channel: 1 },
+  { channel: 2 },
+  { channel: 3 },
+  { channel: 4 },
+  { channel: 5 },
+  { channel: 6 },
+  { channel: 7 },
+  { channel: 8 }
+])
+
+const configmode = ref(false)
+const configchannel = ref(1) // Sensor #, not channel
+const configdata = ref([])
+
+const onNotify = async () => {
+  const response = await fetch('http://192.168.3.101/data')
+  // TODO handle error maybe could be
+  const json = await response.json()
+  data.value = json
+
+  setTimeout(onNotify, 1000)
+}
+
+const updateM = async(channel, value) => {
+  const response = await fetch('http://192.168.3.101/set?ch=' + channel + '&m=' + (value ? '1' : '0'))
+}
+
+const updateFt = async() => {
+  const response = await fetch('http://192.168.3.101/data?ch=' + configchannel.value + ',' + (configchannel.value + 1) + '&type=ft')
+  const json = await response.json()
+  if(configmode.value) {
+    configdata.value = [ json[0]['ft'], json[1]['ft'] ]
+    setTimeout(updateFt, 1000)
+  }
+}
+
+const startSetupMode = (channel) => {
+  configmode.value = true
+  configchannel.value = channel
+  updateM(channel * 2 - 1, 1)
+  setTimeout(updateFt, 1000)
+}
+
+const endSetupMode = () => {
+  configmode.value = false
+  updateM(configchannel.value * 2 - 1)
+}
+
+</script>
+
+<template>
+<div v-if="configmode">
+  <div>
+    <div @click="endSetupMode">X</div>
+    <h2>Setup</h2>
+    Sensor: {{ configchannel }}<br>
+    Front: {{ configdata[0] }}<br>
+    Rear: {{ configdata[1] }}<br>
+  </div>
+</div>
+<div v-else>
+  <div v-for="head in data" :key="head.channel">
+    <div v-if="head.channel % 2 == 1">
+      <hr>
+      Sensor {{ (head.channel + 1) / 2 }}
+      <br>
+      <button @click="startSetupMode((head.channel + 1) / 2)">Setup</button>
+    </div>
+  </div>
+</div>
+<hr>
+</template>
+
+<style scoped>
+</style>

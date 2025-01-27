@@ -1,0 +1,29 @@
+const express = require('express');
+const app = express();
+const port = 3000;
+
+// Sample data
+const defaultData = [
+  { channel: 1 },
+  { channel: 2 },
+  { channel: 3 },
+  { channel: 4 },
+  { channel: 5 },
+  { channel: 6 },
+  { channel: 7 },
+  { channel: 8 },
+];
+const dataCh1 = [{ channel: 1, ft: 123 }, { channel: 2, ft: 234 }]
+
+// Route to handle /data with optional query parameter
+app.get('/data', (req, res) => {
+  if (req.query.ch === '1,2') {
+    res.json(dataCh1);
+  } else {
+    res.json(defaultData);
+  }
+});
+
+app.listen(port, () => {
+  console.log(`Server is running on http://localhost:${port}`);
+});
