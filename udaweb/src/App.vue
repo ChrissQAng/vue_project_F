@@ -330,16 +330,7 @@ const createSetupChart = () => {
  <button :class="isLoading? 'button-run button-run-disabled':'button-run'" @click="runMeasurement(sensor.sensorno, 1)">Measure Yield</button>
  <video v-if="isLoading" src="./assets/icons/Animation.webm" autoplay loop muted class="loading-animation"></video>
 </div>
-<!-- <div class="buttons">
-      <button class="button-setup" @click="startSetupMode(sensor.sensorno)">Setup</button>
 
-      <video v-if="isLoading" src="./assets/icons/Animation.webm" autoplay loop muted class="loading-animation"></video>
-      
-      <template v-else>
-        <button :class="isLoading? 'button-run-disabled':'button-run'" @click="runMeasurement(sensor.sensorno, 0)">Measure F</button>
-        <button :class="isLoading? 'button-run-disabled':'button-run'" @click="runMeasurement(sensor.sensorno, 1)">Measure Yield</button>
-      </template>
-    </div> -->
 <div class="measurement-headline">
   <h3>F Measurement <span>&#10003</span></h3>
 <!-- check implementation here -->
